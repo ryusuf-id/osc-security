@@ -4,7 +4,7 @@
   gather_facts: no
 
   vars:
-    bat_url: "https://filebin.net/tvvu0mj2mcj8m7mu/buat-text.bat"
+    bat_url: "https://raw.githubusercontent.com/ryusuf-id/osc-security/refs/heads/main/create-notepad.bat"
     dest_dir: "C:\\"
     bat_name: "script.bat"
     bat_path: "{{ dest_dir }}{{ bat_name }}"
