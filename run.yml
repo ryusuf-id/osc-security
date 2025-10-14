@@ -1,0 +1,41 @@
+---
+- name: Download & run BAT on Windows as Administrator
+  hosts: windows
+  gather_facts: no
+
+  vars:
+    bat_url: "https://filebin.net/tvvu0mj2mcj8m7mu/buat-text.bat"   # GANTI ke URL Anda
+    dest_dir: "C:\\"
+    bat_name: "script.bat"
+    bat_path: "{{ dest_dir }}{{ bat_name }}"
+    run_args: ""                                        # opsional: argumen untuk .bat, mis. "/quiet /norestart"
+
+  tasks:
+    - name: Pastikan folder tujuan ada
+      ansible.windows.win_file:
+        path: "{{ dest_dir }}"
+        state: directory
+
+    - name: Unduh file BAT ke C:\
+      ansible.windows.win_get_url:
+        url: "{{ bat_url }}"
+        dest: "{{ bat_path }}"
+        # set ke 'no' agar tidak overwrite jika sudah ada; set 'yes' jika ingin paksa update
+        force: no
+        # ubah ke 'no' jika server memakai sertifikat self-signed
+        validate_certs: yes
+
+    - name: Verifikasi file BAT berhasil diunduh
+      ansible.windows.win_stat:
+        path: "{{ bat_path }}"
+      register: bat_stat
+
+    - name: Gagal bila file tidak ditemukan
+      ansible.builtin.fail:
+        msg: "File {{ bat_path }} tidak ditemukan setelah proses download."
+      when: not bat_stat.stat.exists
+
+    - name: Jalankan BAT (tanpa elevasi)
+  ansible.windows.win_command: cmd.exe /c "\"{{ bat_path }}\" {{ run_args }}"
+  args:
+    chdir: "{{ dest_dir }}"
