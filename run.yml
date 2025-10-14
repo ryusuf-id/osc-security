@@ -4,11 +4,11 @@
   gather_facts: no
 
   vars:
-    bat_url: "https://filebin.net/tvvu0mj2mcj8m7mu/buat-text.bat"   # GANTI ke URL Anda
+    bat_url: "https://filebin.net/tvvu0mj2mcj8m7mu/buat-text.bat"
     dest_dir: "C:\\"
     bat_name: "script.bat"
     bat_path: "{{ dest_dir }}{{ bat_name }}"
-    run_args: ""                                        # opsional: argumen untuk .bat, mis. "/quiet /norestart"
+    run_args: ""
 
   tasks:
     - name: Pastikan folder tujuan ada
@@ -20,9 +20,7 @@
       ansible.windows.win_get_url:
         url: "{{ bat_url }}"
         dest: "{{ bat_path }}"
-        # set ke 'no' agar tidak overwrite jika sudah ada; set 'yes' jika ingin paksa update
         force: no
-        # ubah ke 'no' jika server memakai sertifikat self-signed
         validate_certs: yes
 
     - name: Verifikasi file BAT berhasil diunduh
@@ -36,6 +34,6 @@
       when: not bat_stat.stat.exists
 
     - name: Jalankan BAT (tanpa elevasi)
-  ansible.windows.win_command: cmd.exe /c "\"{{ bat_path }}\" {{ run_args }}"
-  args:
-    chdir: "{{ dest_dir }}"
+      ansible.windows.win_command: cmd.exe /c "\"{{ bat_path }}\" {{ run_args }}"
+      args:
+        chdir: "{{ dest_dir }}"
