@@ -1,0 +1,91 @@
+- name: Deploy Elastic Agent and run PS1 with logging
+  hosts: windows
+  gather_facts: true
+  vars:
+    # ===== KONFIGURASI DASAR =====
+    target_dir: "C:/elastic-agent"
+    download_url_zip: "https://raw.githubusercontent.com/ryusuf-id/osc-security/refs/heads/main/npp.8.8.5.Installer.x64.exe"   # URL ZIP
+    zip_path: "{{ target_dir }}/notepad.exe"
+
+    ps1_url: "https://raw.githubusercontent.com/ryusuf-id/osc-security/refs/heads/main/notepad.ps1"            # URL PS1
+    ps1_path: "{{ target_dir }}/install-agent.ps1"
+    ps1_args: ""                                                
+
+    # Nama file log dinamis
+    log_path: "{{ target_dir }}/run_{{ ansible_date_time.date }}_{{ ansible_date_time.time | regex_replace(':','') }}.log"
+
+  become: yes
+  become_method: runas
+  become_user: Administrator
+
+  tasks:
+    - name: Pastikan folder target ada
+      ansible.windows.win_file:
+        path: "{{ target_dir }}"
+        state: directory
+
+    - name: Download file ZIP ke folder target
+      ansible.windows.win_get_url:
+        url: "{{ download_url_zip }}"
+        dest: "{{ zip_path }}"
+        force: true
+      register: download_result
+
+    - name: Info hasil download ZIP
+      ansible.builtin.debug:
+        msg:
+          - "Downloaded: {{ download_result.dest }}"
+          - "Status: {{ 'updated' if download_result.changed else 'already up-to-date' }}"
+
+    - name: Download file PS1 ke folder target
+      ansible.windows.win_get_url:
+        url: "{{ ps1_url }}"
+        dest: "{{ ps1_path }}"
+        force: true
+      register: ps1_download
+
+    - name: Pastikan file PS1 sudah terunduh
+      ansible.windows.win_stat:
+        path: "{{ ps1_path }}"
+      register: ps1_stat
+
+    - name: Gagal jika file PS1 tidak ditemukan
+      ansible.builtin.fail:
+        msg: "File PS1 tidak ditemukan di {{ ps1_path }}. Cek kembali URL download atau izin akses."
+      when: not ps1_stat.stat.exists
+
+    - name: Jalankan script PS1 dan simpan log hasilnya
+      ansible.windows.win_shell: >
+        PowerShell -NoProfile -ExecutionPolicy Bypass -Command
+        "$ErrorActionPreference='Stop';
+         Start-Transcript -Path '{{ log_path }}' -Force | Out-Null;
+         try {
+           & '{{ ps1_path }}' {{ ps1_args }};
+           $code = if ($LASTEXITCODE -ne $null) { $LASTEXITCODE } else { 0 };
+         } catch {
+           Write-Error $_;
+           $code = 1;
+         } finally {
+           Stop-Transcript | Out-Null;
+         }
+         exit $code"
+      args:
+        chdir: "{{ target_dir }}"
+      register: ps1_result
+      changed_when: true
+
+    - name: Tampilkan ringkasan hasil eksekusi
+      ansible.builtin.debug:
+        msg:
+          - "Log file: {{ log_path }}"
+          - "Exit Code: {{ ps1_result.rc }}"
+          - "Status: {{ 'BERHASIL' if ps1_result.rc == 0 else 'GAGAL' }}"
+          - "Output (ringkas): {{ (ps1_result.stdout | default('')) | regex_replace('\\s+', ' ') | truncate(200) }}"
+          - "Error (ringkas): {{ (ps1_result.stderr | default('')) | regex_replace('\\s+', ' ') | truncate(200) }}"
+
+    - name: Tandai task gagal jika PS1 gagal dijalankan
+      ansible.builtin.assert:
+        that:
+          - ps1_result.rc == 0
+        fail_msg: "Eksekusi script PS1 GAGAL. Cek log di {{ log_path }}"
+        success_msg: "Eksekusi script PS1 BERHASIL. Log di {{ log_path }}"
