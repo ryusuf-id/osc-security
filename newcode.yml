@@ -1,0 +1,69 @@
+---
+- name: Jalankan PS1 elevated & verifikasi file di Desktop
+  hosts: windows
+  gather_facts: no
+
+  vars:
+    ps1_path: 'C:\Temp\DibuatOlehAnsible.ps1'
+    file_name: 'Dibuat_Oleh_Ansible.txt'
+    desktop_scope: 'Public'   # opsi: Public | Current | Administrator
+
+  tasks:
+    - name: Pastikan folder temp ada
+      ansible.windows.win_file:
+        path: 'C:\Temp'
+        state: directory
+
+    - name: Upload script PowerShell
+      ansible.windows.win_copy:
+        dest: "{{ ps1_path }}"
+        content: |
+          param(
+            [ValidateSet('Public','Current','Administrator')]
+            [string]$DesktopScope = 'Public',
+            [string]$FileName = 'Dibuat_Oleh_Ansible.txt'
+          )
+
+          switch ($DesktopScope) {
+            'Public'        { $desktopPath = Join-Path $Env:Public 'Desktop' }
+            'Current'       { $desktopPath = [Environment]::GetFolderPath('Desktop') }
+            'Administrator' { $desktopPath = 'C:\Users\Administrator\Desktop' }
+          }
+
+          if (-not (Test-Path $desktopPath)) {
+            New-Item -Path $desktopPath -ItemType Directory -Force | Out-Null
+          }
+
+          $filePath = Join-Path $desktopPath $FileName
+          "DIBUAT OLEH ANSIBEL" | Out-File -FilePath $filePath -Encoding UTF8 -Force
+
+    - name: Jalankan script sebagai Administrator (elevated)
+      ansible.windows.win_shell: >
+        powershell -NoProfile -ExecutionPolicy Bypass
+        -File "{{ ps1_path }}"
+        -DesktopScope "{{ desktop_scope }}"
+        -FileName "{{ file_name }}"
+      become: yes
+      become_method: runas
+      become_user: Administrator
+
+    - name: Verifikasi file ada di Desktop target
+      ansible.windows.win_shell: |
+        switch ('{{ desktop_scope }}') {
+          'Public'        { $desktopPath = Join-Path $Env:Public 'Desktop' }
+          'Current'       { $desktopPath = [Environment]::GetFolderPath('Desktop') }
+          'Administrator' { $desktopPath = 'C:\Users\Administrator\Desktop' }
+        }
+        $file = Join-Path $desktopPath '{{ file_name }}'
+        if (Test-Path $file) { "FOUND:$file" } else { "NOT_FOUND:$file" }
+      register: check_file
+
+    - name: Tampilkan hasil verifikasi
+      ansible.builtin.debug:
+        msg: >-
+          {% if check_file.stdout is search('^FOUND:') %}
+          ✅ Berhasil. File ada di {{ check_file.stdout.split(':', 1)[1] }}
+          {% else %}
+          ❌ Gagal menemukan file di Desktop (scope: {{ desktop_scope }}). Output: {{ check_file.stdout }}
+          {% endif %}
+
