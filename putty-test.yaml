@@ -33,12 +33,6 @@
         overwrite: true
       register: unzip_result  
 
-    - name: Tampilkan hasil ekstraksi ZIP
-      ansible.builtin.debug:
-        msg:
-          - "ZIP berhasil diekstrak ke {{ target_dir }}"
-          - "Jumlah file: {{ unzip_result.files | length }}"
-
     - name: Cari file MSI PuTTY hasil ekstrak
       ansible.windows.win_find:
         paths: "{{ target_dir }}"
