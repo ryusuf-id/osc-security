@@ -1,0 +1,28 @@
+- name: Jalankan instalasi Elastic Agent via PowerShell (recommended)
+      ansible.windows.win_powershell:
+        script: |
+          # pindah ke folder target yang sudah ditemukan
+          Set-Location -Path "{{ agent_dir }}"
+
+          # suppress progress bar agar output bersih
+          $ProgressPreference = 'SilentlyContinue'
+
+          # jalankan installer dan tunggu selesai; dapatkan exit code
+          $proc = Start-Process -FilePath ".\elastic-agent.exe" `
+                                -ArgumentList "install --url=https://172.31.1.244:8220 --enrollment-token=Z0x2clRINEJUR --insecure" `
+                                -WorkingDirectory (Get-Location) `
+                                -NoNewWindow -Wait -PassThru
+
+          if ($proc.ExitCode -ne 0) {
+            Write-Error "Elastic Agent install failed with exitcode $($proc.ExitCode)"
+            exit $proc.ExitCode
+          } else {
+            Write-Output "Elastic Agent installed successfully (ExitCode: $($proc.ExitCode))"
+          }
+      become: yes
+      become_method: runas
+      become_user: Administrator
+      become_password: "{{ admin_password }}"
+      become_flags: "logon_type=batch logon_flags=with_profile"
+      register: install_result
+      when: agent_dir is defined
