@@ -1,0 +1,106 @@
+- name: Instalasi Putty Windows Server
+  hosts: windows
+  gather_facts: no
+  
+  vars:
+    target_dir: "C:/elastic-agent"
+    download_url_zip: "https://raw.githubusercontent.com/ryusuf-id/osc-security/refs/heads/main/putty-64bit-0.83-installer.zip"   # URL ZIP
+    zip_path: "{{ target_dir }}/putty-64bit-0.83-installer.zip"
+
+  tasks:
+    - name: Pastikan folder target ada
+      ansible.windows.win_file:
+        path: "{{ target_dir }}"
+        state: directory
+
+    - name: Download file ZIP ke folder target
+      ansible.windows.win_get_url:
+        url: "{{ download_url_zip }}"
+        dest: "{{ zip_path }}"
+        force: true
+      register: download_result
+
+    - name: Info hasil download ZIP
+      ansible.builtin.debug:
+        msg:
+          - "Downloaded: {{ download_result.dest }}"
+          - "Status: {{ 'updated' if download_result.changed else 'already up-to-date' }}"
+
+    - name: Ekstrak ZIP ke folder target
+      community.windows.win_unzip:
+        src: "{{ zip_path }}"
+        dest: "{{ target_dir }}"
+        overwrite: true
+      register: unzip_result  
+
+    - name: Tampilkan hasil ekstraksi ZIP
+      ansible.builtin.debug:
+        msg:
+          - "ZIP berhasil diekstrak ke {{ target_dir }}"
+          - "Jumlah file: {{ unzip_result.files | length }}"
+
+    - name: Cari file MSI PuTTY hasil ekstrak
+      ansible.windows.win_find:
+        paths: "{{ target_dir }}"
+        patterns:
+          - "putty-*.msi"
+        file_type: file
+        recurse: false
+      register: found_msi
+
+    - name: Gagal jika file MSI tidak ditemukan
+      ansible.builtin.fail:
+        msg: "Installer PuTTY (.msi) tidak ditemukan di {{ target_dir }}. Cek isi ZIP."
+      when: (found_msi.matched | int) == 0
+
+    - name: Set variabel path MSI (gunakan file pertama yang ditemukan)
+      ansible.builtin.set_fact:
+        putty_msi_path: "{{ (found_msi.files | sort(attribute='path'))[0].path }}"
+
+    - name: Jalankan instalasi Elastic Agent langsung lewat Ansible
+      ansible.windows.win_shell: |
+        $ProgressPreference = 'SilentlyContinue'
+        Start-Process -FilePath "{{ putty_msi_path }}" -ArgumentList "/quiet /norestart" -Wait
+      register: install_result
+      become: yes
+      become_method: runas
+      become_user: Administrator
+
+    - name: Tampilkan hasil output instalasi
+      ansible.builtin.debug:
+        msg:
+          - "STDOUT:"
+          - "{{ install_result.stdout | default('') }}"
+          - "STDERR:"
+          - "{{ install_result.stderr | default('') }}"
+          - "Exit Code: {{ install_result.rc }}"
+
+    - name: Verifikasi PuTTY sudah terinstal (registry)
+      ansible.windows.win_shell: |
+        $regPath = "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall"
+        $putty = Get-ChildItem $regPath | Get-ItemProperty | Where-Object { $_.DisplayName -like "PuTTY*" }
+        if ($putty) {
+          Write-Output "PuTTY versi $($putty.DisplayVersion) terinstal."
+        } else {
+          Write-Output "PuTTY belum terinstal."
+          exit 1
+        }
+      register: verify_putty
+      changed_when: false
+      failed_when: verify_putty.rc != 0
+
+    - name: Verifikasi keberadaan file PuTTY
+      ansible.windows.win_stat:
+        path: "C:/Program Files/PuTTY/putty.exe"
+      register: putty_file_check
+
+    - name: Tampilkan hasil verifikasi
+      ansible.builtin.debug:
+        msg:
+          - "Registry: {{ verify_putty.stdout }}"
+          - "File ada: {{ putty_file_check.stat.exists }}"
+
+      
+
+
+
