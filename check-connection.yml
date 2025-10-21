@@ -1,0 +1,79 @@
+- name: Cek konektivitas (telnet-like) dari Windows Server ke banyak target & port
+  hosts: windows
+  gather_facts: no
+
+  vars:
+    # Daftar target yang akan dicek dari setiap Windows Server
+    targets:
+      - 172.31.1.244
+      - 172.31.1.80
+      - google.com
+
+    # Daftar port yang akan dicek
+    ports:
+      - 80
+      - 443
+      - 5986
+      - 8220
+
+  tasks:
+    - name: Bentuk pasangan target×port (cartesian product)
+     .ansible.builtin.set_fact:
+        target_port_pairs: "{{ targets | product(ports) | list }}"
+
+    - name: Tes koneksi TCP untuk setiap pasangan target×port (PowerShell Test-NetConnection)
+      ansible.windows.win_shell: |
+        $target = "{{ item.0 }}"
+        $port   = [int]"{{ item.1 }}"
+        $r = Test-NetConnection -ComputerName $target -Port $port -WarningAction SilentlyContinue -InformationAction SilentlyContinue
+
+        # Buat objek hasil yang rapi
+        $obj = [pscustomobject]@{
+          source       = "$env:COMPUTERNAME"
+          target       = $target
+          port         = $port
+          success      = [bool]$r.TcpTestSucceeded
+          ping         = [bool]$r.PingSucceeded
+          latency_ms   = if ($r.PingSucceeded) { $r.PingReplyDetails.RoundtripTime } else { $null }
+        }
+
+        $obj | ConvertTo-Json -Compress
+      loop: "{{ target_port_pairs }}"
+      register: port_checks
+
+    - name: Kumpulkan & parse hasil JSON
+      ansible.builtin.set_fact:
+        check_results: "{{ (check_results | default([])) + [ (item.stdout | from_json) ] }}"
+      loop: "{{ port_checks.results }}"
+
+    # ====== OUTPUT YANG MUDAH DIBACA ======
+
+    - name: Ringkasan per baris (mudah dibaca)
+      ansible.builtin.debug:
+        msg: >-
+          [{{
+            item.source
+          }}] {{ item.target }}:{{ item.port }} -> {{
+            '✅ OK' if item.success else '❌ FAIL'
+          }}{{
+            (' (ping ' ~ item.latency_ms ~ ' ms)') if (item.ping and item.latency_ms is not none) else ''
+          }}
+      loop: "{{ check_results | sort(attribute='target') | list }}"
+
+    - name: Rekap per target (jumlah OK/FAIL)
+      ansible.builtin.debug:
+        msg: |
+          Rekap untuk {{ item.key }}:
+            OK   : {{ (item.value | selectattr('success') | list | length) }}
+            FAIL : {{ (item.value | rejectattr('success')  | list | length) }}
+      vars:
+        grouped: "{{ check_results | groupby('target') | items2dict(key_name='key', value_name='value') }}"
+      loop: "{{ grouped | dict2items }}"
+
+    # (Opsional) Tandai task FAIL bila ada koneksi yang gagal
+    - name: Gagal bila ada yang FAIL (opsional)
+      ansible.builtin.assert:
+        that:
+          - (check_results | rejectattr('success') | list | length) == 0
+        fail_msg: "Ada koneksi yang gagal. Lihat ringkasan di atas."
+        success_msg: "Semua koneksi OK."
